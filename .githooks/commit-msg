@@ -1,0 +1,17 @@
+#!/bin/sh
+# commit-msg hook for the ECS781P Plan B Studio repo.
+# Check the project's single-author commit convention.
+# Enable once per clone:  git config core.hooksPath .githooks
+
+MSG_FILE="$1"
+
+# Ignore comment lines (starting with #) that git adds to the editor template.
+BODY=$(grep -v '^#' "$MSG_FILE")
+
+if printf '%s' "$BODY" | grep -Eiq 'co-authored-by'; then
+  echo "ERROR: commit message includes a Co-Authored-By trailer." >&2
+  echo "Remove it and commit again. Commits must be attributed only to the team member who did the work." >&2
+  exit 1
+fi
+
+exit 0
