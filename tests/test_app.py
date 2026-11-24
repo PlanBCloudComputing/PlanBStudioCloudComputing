@@ -22,6 +22,14 @@ def test_blueprints_are_registered():
     assert "/api/v1/events/<event_id>/decisions" in rules
 
 
+def test_home_redirects_to_the_start_page():
+    client = create_app().test_client()
+    response = client.get("/")
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith("/static/index.html")
+    assert client.get("/static/index.html").status_code == 200
+
+
 def test_healthz_needs_no_database_and_sets_instance_header(monkeypatch):
     monkeypatch.delenv("DB_PASSWORDS_JSON", raising=False)
     response = create_app().test_client().get("/api/v1/healthz")

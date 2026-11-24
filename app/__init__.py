@@ -15,7 +15,7 @@ Important logic:
 import os
 import uuid
 
-from flask import Flask, jsonify
+from flask import Flask, jsonify, redirect
 
 # Generated once per process, never changes while the instance lives.
 INSTANCE_ID = uuid.uuid4().hex[:8]
@@ -38,6 +38,11 @@ def create_app():
     def add_instance_header(response):
         response.headers["X-Served-By"] = INSTANCE_ID
         return response
+
+    @app.get("/")
+    def home():
+        # The web screens live in app/static; send visitors of the bare URL to the start page.
+        return redirect("/static/index.html")
 
     @app.get("/api/v1/healthz")
     def healthz():
