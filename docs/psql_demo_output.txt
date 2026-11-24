@@ -1,0 +1,374 @@
+-- psql_demo_output.txt: real output of docs/psql_demo.sql (video scene 7).
+-- Run on 2026-11-24 against the LOCAL Docker database (PostgreSQL 16, port 5433).
+-- Command: PGPASSWORD=local_dev_only psql -h localhost -p 5433 -U planb_viewer -d planb -a -f docs/psql_demo.sql
+-- The final run against the deployed Cloud SQL database (through the Auth Proxy) replaces this file in P3-S2.
+
+-- psql_demo.sql: the database-policy demo (video scene 7). No Flask involved.
+--
+-- Purpose: show, with real output, that PostgreSQL itself enforces the rules in
+-- docs/ROLE_DESIGN.md: the app roles have no admin rights, a viewer cannot write,
+-- an editor cannot touch the decision log, a lead can change only their own
+-- activity, the decision log cannot be edited or deleted even by the organiser,
+-- and tables cannot be dropped.
+--
+-- How to run (local Docker database, started with `docker compose up -d`):
+--   PGPASSWORD=local_dev_only psql -h localhost -p 5433 -U planb_viewer -d planb -a -f docs/psql_demo.sql
+-- Against Cloud SQL through the Auth Proxy, use the proxy host and port and put each
+-- role's password in your ~/.pgpass (never in this file). Never connect as postgres.
+--
+-- Important logic:
+--   * Every step logs in as a real app role with \c, never as postgres. The setup
+--     steps (creating users, an event, activities) also use only app roles.
+--   * "Who is calling" is passed the way Flask does it: set_config('app.user_id', ..., true)
+--     inside a transaction, so row-level security can see the caller.
+--   * Each attempt that may fail runs in its own transaction and ends with ROLLBACK,
+--     because after an error PostgreSQL ignores everything until the transaction ends.
+--   * Row-level security usually shows up as "0 rows" (UPDATE 0, or no rows selected),
+--     not as an error. Only an INSERT that breaks a policy raises an error.
+--   * Each run uses fresh ids and email addresses, so it can be repeated. Note that the
+--     decision row it records can never be deleted (that is the point of the demo).
+\set ON_ERROR_STOP off
+\pset pager off
+Pager usage is off.
+\echo
+
+\echo '=== 1. Who are the roles? (no superuser and no Bypass RLS on the app roles) ==='
+=== 1. Who are the roles? (no superuser and no Bypass RLS on the app roles) ===
+\du
+                                List of roles
+    Role name    |                         Attributes                         
+-----------------+------------------------------------------------------------
+ planb_auth      | 
+ planb_editor    | 
+ planb_lead      | 
+ planb_migrator  | Cannot login
+ planb_organiser | 
+ planb_viewer    | 
+ postgres        | Superuser, Create role, Create DB, Replication, Bypass RLS
+ weather_ingest  | 
+
+\echo
+
+\echo '=== 2. What may each role do? (grants, column grants and policies) ==='
+=== 2. What may each role do? (grants, column grants and policies) ===
+\dp decision_log
+                                                                              Access privileges
+ Schema |     Name     | Type  |           Access privileges           | Column privileges |                                    Policies                                     
+--------+--------------+-------+---------------------------------------+-------------------+---------------------------------------------------------------------------------
+ public | decision_log | table | planb_migrator=arwdDxt/planb_migrator+|                   | decision_log_select (r):                                                       +
+        |              |       | planb_viewer=r/planb_migrator        +|                   |   (u): has_role(event_id, 'viewer'::text)                                      +
+        |              |       | planb_lead=r/planb_migrator          +|                   |   to: planb_editor, planb_lead, planb_organiser, planb_viewer                  +
+        |              |       | planb_editor=r/planb_migrator        +|                   | decision_log_insert (a):                                                       +
+        |              |       | planb_organiser=ar/planb_migrator     |                   |   (c): (has_role(event_id, 'organiser'::text) AND (created_by = app_user_id()))+
+        |              |       |                                       |                   |   to: planb_organiser
+(1 row)
+
+\dp activities
+                                                                                 Access privileges
+ Schema |    Name    | Type  |           Access privileges           |       Column privileges       |                                   Policies                                   
+--------+------------+-------+---------------------------------------+-------------------------------+------------------------------------------------------------------------------
+ public | activities | table | planb_migrator=arwdDxt/planb_migrator+| title:                       +| activities_select (r):                                                      +
+        |            |       | planb_viewer=r/planb_migrator        +|   planb_lead=w/planb_migrator+|   (u): has_role(event_id, 'viewer'::text)                                   +
+        |            |       | planb_lead=r/planb_migrator          +| duration_minutes:            +|   to: planb_editor, planb_lead, planb_organiser, planb_viewer               +
+        |            |       | planb_editor=arwd/planb_migrator     +|   planb_lead=w/planb_migrator+| activities_insert (a):                                                      +
+        |            |       | planb_organiser=arwd/planb_migrator   | max_precip_prob:             +|   (c): has_role(event_id, 'editor'::text)                                   +
+        |            |       |                                       |   planb_lead=w/planb_migrator+|   to: planb_editor, planb_organiser                                         +
+        |            |       |                                       | max_wind_kmh:                +| activities_update (w):                                                      +
+        |            |       |                                       |   planb_lead=w/planb_migrator+|   (u): has_role(event_id, 'editor'::text)                                   +
+        |            |       |                                       | fallback_title:              +|   (c): has_role(event_id, 'editor'::text)                                   +
+        |            |       |                                       |   planb_lead=w/planb_migrator+|   to: planb_editor, planb_organiser                                         +
+        |            |       |                                       | fallback_duration_minutes:   +| activities_delete (d):                                                      +
+        |            |       |                                       |   planb_lead=w/planb_migrator+|   (u): has_role(event_id, 'editor'::text)                                   +
+        |            |       |                                       | notes:                       +|   to: planb_editor, planb_organiser                                         +
+        |            |       |                                       |   planb_lead=w/planb_migrator | activities_lead_update (w):                                                 +
+        |            |       |                                       |                               |   (u): ((lead_user_id = app_user_id()) AND has_role(event_id, 'lead'::text))+
+        |            |       |                                       |                               |   (c): ((lead_user_id = app_user_id()) AND has_role(event_id, 'lead'::text))+
+        |            |       |                                       |                               |   to: planb_lead
+(1 row)
+
+\dp users
+                                                                          Access privileges
+ Schema | Name  | Type  |           Access privileges           |         Column privileges          |                           Policies                            
+--------+-------+-------+---------------------------------------+------------------------------------+---------------------------------------------------------------
+ public | users | table | planb_migrator=arwdDxt/planb_migrator+| id:                               +| users_auth_select (r):                                       +
+        |       |       | planb_auth=ar/planb_migrator          |   planb_viewer=r/planb_migrator   +|   (u): true                                                  +
+        |       |       |                                       |   planb_lead=r/planb_migrator     +|   to: planb_auth                                             +
+        |       |       |                                       |   planb_editor=r/planb_migrator   +| users_auth_insert (a):                                       +
+        |       |       |                                       |   planb_organiser=r/planb_migrator+|   (c): true                                                  +
+        |       |       |                                       | email:                            +|   to: planb_auth                                             +
+        |       |       |                                       |   planb_viewer=r/planb_migrator   +| users_tiers_select (r):                                      +
+        |       |       |                                       |   planb_lead=r/planb_migrator     +|   (u): ((id = app_user_id()) OR shares_event_with(id))       +
+        |       |       |                                       |   planb_editor=r/planb_migrator   +|   to: planb_editor, planb_lead, planb_organiser, planb_viewer
+        |       |       |                                       |   planb_organiser=r/planb_migrator+| 
+        |       |       |                                       | display_name:                     +| 
+        |       |       |                                       |   planb_viewer=r/planb_migrator   +| 
+        |       |       |                                       |   planb_lead=r/planb_migrator     +| 
+        |       |       |                                       |   planb_editor=r/planb_migrator   +| 
+        |       |       |                                       |   planb_organiser=r/planb_migrator | 
+(1 row)
+
+-- ---------------------------------------------------------------------------
+\echo
+
+\echo '=== Setup: fresh ids, then create the demo data using app roles only ==='
+=== Setup: fresh ids, then create the demo data using app roles only ===
+SELECT substr(md5(random()::text), 1, 8) AS tag,
+       gen_random_uuid() AS org_id,   gen_random_uuid() AS lead_b_id,
+       gen_random_uuid() AS lead_c_id, gen_random_uuid() AS editor_id,
+       gen_random_uuid() AS viewer_id, gen_random_uuid() AS stranger_id,
+       gen_random_uuid() AS event_id, gen_random_uuid() AS act_b, gen_random_uuid() AS act_c,
+       gen_random_uuid() AS plan_id, gen_random_uuid() AS snap_id,
+       gen_random_uuid() AS cmp_id, gen_random_uuid() AS decision_id \gset
+\c planb planb_auth
+You are now connected to database "planb" as user "planb_auth".
+INSERT INTO users (id, email, display_name, password_hash) VALUES
+    (:'org_id',    'demo-org-'    || :'tag' || '@example.com', 'Olivia (organiser)', 'not-a-real-hash'),
+    (:'lead_b_id', 'demo-leadb-'  || :'tag' || '@example.com', 'Ben (lead)',         'not-a-real-hash'),
+    (:'lead_c_id', 'demo-leadc-'  || :'tag' || '@example.com', 'Cara (lead)',        'not-a-real-hash'),
+    (:'editor_id', 'demo-editor-' || :'tag' || '@example.com', 'Ed (editor)',        'not-a-real-hash'),
+    (:'viewer_id', 'demo-viewer-' || :'tag' || '@example.com', 'Vic (viewer)',       'not-a-real-hash');
+INSERT 0 5
+\c planb planb_organiser
+You are now connected to database "planb" as user "planb_organiser".
+BEGIN;
+BEGIN
+SELECT set_config('app.user_id', :'org_id', true) \gset
+INSERT INTO events (id, owner_id, title, event_date, timezone, venue_name, venue_lat, venue_lon)
+    VALUES (:'event_id', :'org_id', 'Summer fete', '2026-12-20', 'Europe/London', 'Village green', 51.5, -0.1);
+INSERT 0 1
+-- The first organiser row: allowed only because the caller owns the event and it has no members yet.
+INSERT INTO event_members (event_id, user_id, role) VALUES (:'event_id', :'org_id', 'organiser');
+INSERT 0 1
+INSERT INTO event_members (event_id, user_id, role) VALUES
+    (:'event_id', :'lead_b_id', 'lead'), (:'event_id', :'lead_c_id', 'lead'),
+    (:'event_id', :'editor_id', 'editor'), (:'event_id', :'viewer_id', 'viewer');
+INSERT 0 4
+INSERT INTO activities (id, event_id, title, start_time, duration_minutes, lead_user_id) VALUES
+    (:'act_b', :'event_id', 'Rounders',  '10:00', 60, :'lead_b_id'),
+    (:'act_c', :'event_id', 'Quiz',      '12:00', 60, :'lead_c_id');
+INSERT 0 2
+INSERT INTO plans (id, event_id, label) VALUES (:'plan_id', :'event_id', 'Original');
+INSERT 0 1
+COMMIT;
+COMMIT
+\c planb weather_ingest
+You are now connected to database "planb" as user "weather_ingest".
+BEGIN;
+BEGIN
+SELECT set_config('app.user_id', :'org_id', true) \gset
+INSERT INTO weather_snapshots (id, event_id, fetched_at, expires_at, hourly)
+    VALUES (:'snap_id', :'event_id', now(), now() + interval '1 hour', '[]');
+INSERT 0 1
+COMMIT;
+COMMIT
+\c planb planb_organiser
+You are now connected to database "planb" as user "planb_organiser".
+BEGIN;
+BEGIN
+SELECT set_config('app.user_id', :'org_id', true) \gset
+INSERT INTO comparisons (id, event_id, snapshot_id, method_version, seed, runs, results, created_by)
+    VALUES (:'cmp_id', :'event_id', :'snap_id', 'v1', 1, 100, '[]', :'org_id');
+INSERT 0 1
+COMMIT;
+COMMIT
+-- ---------------------------------------------------------------------------
+\echo
+
+\echo '=== 3. A viewer can read but INSERT is denied ==='
+=== 3. A viewer can read but INSERT is denied ===
+\c planb planb_viewer
+You are now connected to database "planb" as user "planb_viewer".
+BEGIN;
+BEGIN
+SELECT set_config('app.user_id', :'viewer_id', true) \gset
+SELECT title, start_time FROM activities ORDER BY start_time;
+  title   | start_time 
+----------+------------
+ Rounders | 10:00:00
+ Quiz     | 12:00:00
+(2 rows)
+
+INSERT INTO activities (id, event_id, title, start_time, duration_minutes)
+    VALUES (gen_random_uuid(), :'event_id', 'Sneaky extra', '15:00', 30);
+psql:<stdin>:96: ERROR:  permission denied for table activities
+ROLLBACK;
+ROLLBACK
+\echo
+
+\echo '=== 4. Row-level security: someone who is not a member sees no rows (no error) ==='
+=== 4. Row-level security: someone who is not a member sees no rows (no error) ===
+BEGIN;
+BEGIN
+SELECT set_config('app.user_id', :'stranger_id', true) \gset
+SELECT count(*) AS activities_a_stranger_can_see FROM activities;
+ activities_a_stranger_can_see 
+-------------------------------
+                             0
+(1 row)
+
+ROLLBACK;
+ROLLBACK
+\echo
+
+\echo '=== 5. Normal tiers cannot read password hashes ==='
+=== 5. Normal tiers cannot read password hashes ===
+BEGIN;
+BEGIN
+SELECT set_config('app.user_id', :'viewer_id', true) \gset
+SELECT password_hash FROM users;
+psql:<stdin>:110: ERROR:  permission denied for table users
+ROLLBACK;
+ROLLBACK
+-- ---------------------------------------------------------------------------
+\echo
+
+\echo '=== 6. An editor can change activities but cannot write the decision log ==='
+=== 6. An editor can change activities but cannot write the decision log ===
+\c planb planb_editor
+You are now connected to database "planb" as user "planb_editor".
+BEGIN;
+BEGIN
+SELECT set_config('app.user_id', :'editor_id', true) \gset
+UPDATE activities SET notes = 'bring a tent' WHERE id = :'act_b';
+UPDATE 1
+INSERT INTO decision_log (id, event_id, plan_id, comparison_id, created_by)
+    VALUES (gen_random_uuid(), :'event_id', :'plan_id', :'cmp_id', :'editor_id');
+ROLLBACK;
+psql:<stdin>:121: ERROR:  permission denied for table decision_log
+ROLLBACK
+-- ---------------------------------------------------------------------------
+\echo
+
+\echo '=== 7. A lead changes 0 rows on another lead''s activity (no error), data unchanged ==='
+=== 7. A lead changes 0 rows on another lead's activity (no error), data unchanged ===
+\c planb planb_lead
+You are now connected to database "planb" as user "planb_lead".
+BEGIN;
+BEGIN
+SELECT set_config('app.user_id', :'lead_b_id', true) \gset
+SELECT title AS cara_activity_before FROM activities WHERE id = :'act_c';
+ cara_activity_before 
+----------------------
+ Quiz
+(1 row)
+
+UPDATE activities SET title = 'Hijacked by Ben' WHERE id = :'act_c';
+UPDATE 0
+SELECT title AS cara_activity_after FROM activities WHERE id = :'act_c';
+ cara_activity_after 
+---------------------
+ Quiz
+(1 row)
+
+ROLLBACK;
+ROLLBACK
+\echo
+
+\echo '=== 8. The same lead CAN change their own activity (UPDATE 1) ... ==='
+=== 8. The same lead CAN change their own activity (UPDATE 1) ... ===
+BEGIN;
+BEGIN
+SELECT set_config('app.user_id', :'lead_b_id', true) \gset
+UPDATE activities SET title = 'Rounders (renamed by its lead)' WHERE id = :'act_b';
+UPDATE 1
+SELECT title FROM activities WHERE id = :'act_b';
+             title              
+--------------------------------
+ Rounders (renamed by its lead)
+(1 row)
+
+ROLLBACK;
+ROLLBACK
+\echo
+
+\echo '=== 9. ... but only the allowed columns: start_time is refused ==='
+=== 9. ... but only the allowed columns: start_time is refused ===
+BEGIN;
+BEGIN
+SELECT set_config('app.user_id', :'lead_b_id', true) \gset
+UPDATE activities SET start_time = '09:00' WHERE id = :'act_b';
+psql:<stdin>:147: ERROR:  permission denied for table activities
+ROLLBACK;
+ROLLBACK
+-- ---------------------------------------------------------------------------
+\echo
+
+\echo '=== 10. The organiser can INSERT into the decision log ==='
+=== 10. The organiser can INSERT into the decision log ===
+\c planb planb_organiser
+You are now connected to database "planb" as user "planb_organiser".
+BEGIN;
+BEGIN
+SELECT set_config('app.user_id', :'org_id', true) \gset
+INSERT INTO decision_log (id, event_id, plan_id, comparison_id, note, created_by)
+    VALUES (:'decision_id', :'event_id', :'plan_id', :'cmp_id', 'Going with the original plan', :'org_id');
+INSERT 0 1
+COMMIT;
+COMMIT
+\echo
+
+\echo '=== 11. ... but UPDATE and DELETE are denied, even for the organiser ==='
+=== 11. ... but UPDATE and DELETE are denied, even for the organiser ===
+BEGIN;
+BEGIN
+SELECT set_config('app.user_id', :'org_id', true) \gset
+UPDATE decision_log SET note = 'quietly rewritten' WHERE id = :'decision_id';
+psql:<stdin>:164: ERROR:  permission denied for table decision_log
+ROLLBACK;
+ROLLBACK
+BEGIN;
+BEGIN
+SELECT set_config('app.user_id', :'org_id', true) \gset
+DELETE FROM decision_log WHERE id = :'decision_id';
+psql:<stdin>:168: ERROR:  permission denied for table decision_log
+ROLLBACK;
+ROLLBACK
+BEGIN;
+BEGIN
+SELECT set_config('app.user_id', :'org_id', true) \gset
+SELECT note, created_at FROM decision_log WHERE id = :'decision_id';
+             note             |          created_at           
+------------------------------+-------------------------------
+ Going with the original plan | 2026-11-24 12:47:41.800826+00
+(1 row)
+
+ROLLBACK;
+ROLLBACK
+\echo
+
+\echo '=== 12. An event with recorded decisions cannot be deleted ==='
+=== 12. An event with recorded decisions cannot be deleted ===
+BEGIN;
+BEGIN
+SELECT set_config('app.user_id', :'org_id', true) \gset
+DELETE FROM events WHERE id = :'event_id';
+psql:<stdin>:179: ERROR:  update or delete on table "events" violates foreign key constraint "decision_log_event_id_fkey" on table "decision_log"
+DETAIL:  Key is still referenced from table "decision_log".
+ROLLBACK;
+ROLLBACK
+\echo
+
+\echo '=== 13. The organiser tier cannot be used by someone who is not an organiser of the event ==='
+=== 13. The organiser tier cannot be used by someone who is not an organiser of the event ===
+BEGIN;
+BEGIN
+SELECT set_config('app.user_id', :'stranger_id', true) \gset
+INSERT INTO decision_log (id, event_id, plan_id, comparison_id, created_by)
+    VALUES (gen_random_uuid(), :'event_id', :'plan_id', :'cmp_id', :'stranger_id');
+psql:<stdin>:187: ERROR:  new row violates row-level security policy for table "decision_log"
+ROLLBACK;
+ROLLBACK
+\echo
+
+\echo '=== 14. DROP TABLE is denied (the app roles own nothing) ==='
+=== 14. DROP TABLE is denied (the app roles own nothing) ===
+BEGIN;
+BEGIN
+DROP TABLE activities;
+psql:<stdin>:193: ERROR:  must be owner of table activities
+ROLLBACK;
+ROLLBACK
+\echo
+
+\echo '=== Done. Nothing above used postgres or any role with admin rights. ==='
+=== Done. Nothing above used postgres or any role with admin rights. ===
