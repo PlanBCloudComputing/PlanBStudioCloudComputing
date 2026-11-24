@@ -9,6 +9,14 @@ Important logic (to be implemented in P1-S4):
   * get_conn() starts a transaction and sets app.user_id for that transaction
     only (set_config(..., true)). Row-level security policies read this value,
     so there is no global "current user" and replicas stay stateless.
+Notes for callers (see docs/ROLE_DESIGN.md section 3):
+  * Creating an event: INSERT the event, INSERT the creator's organiser
+    membership, and only then read the event. INSERT ... RETURNING on events is
+    refused by RLS because the creator is not a member yet.
+  * The membership tiers may SELECT only id, email, display_name from users;
+    SELECT * fails with permission denied by design.
+  * Deleting a member who still leads an activity, or an event, plan or
+    comparison that has recorded decisions, fails on a foreign key: answer 409.
 """
 from contextlib import contextmanager
 

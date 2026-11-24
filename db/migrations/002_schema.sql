@@ -114,9 +114,13 @@ CREATE TABLE comparisons (
 CREATE INDEX comparisons_event_idx ON comparisons (event_id, created_at DESC);
 
 -- Append-only record of committed decisions (INSERT only, see 003_policies.sql).
+-- event_id is ON DELETE RESTRICT, not CASCADE: a cascade would run with the table
+-- owner's rights and erase the log even though nobody has DELETE on it. So an event
+-- (or a plan or comparison) that has recorded decisions cannot be deleted; the
+-- database refuses and Flask answers 409.
 CREATE TABLE decision_log (
     id            uuid PRIMARY KEY,
-    event_id      uuid NOT NULL REFERENCES events (id) ON DELETE CASCADE,
+    event_id      uuid NOT NULL REFERENCES events (id) ON DELETE RESTRICT,
     plan_id       uuid NOT NULL,
     comparison_id uuid NOT NULL,
     note          text,
