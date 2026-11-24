@@ -1,0 +1,54 @@
+<!doctype html>
+<!-- register.html: create-account screen (task P2-S6).
+     Purpose: POST /api/v1/auth/register. The server hashes the password (Argon2id);
+     this page never stores it. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Register - Plan B Studio</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav>
+  <a href="index.html">Plan B Studio</a>
+  <a href="register.html">Register</a>
+  <a href="login.html">Log in</a>
+  <a href="members.html">Members</a>
+  <a href="decisions.html">Decisions</a>
+  <a href="#" id="logout" hidden>Log out</a>
+  <span class="who" id="who"></span>
+</nav>
+<main>
+<h1>Create an account</h1>
+<form class="stack" id="form">
+  <label>Email <input type="email" name="email" autocomplete="email" required></label>
+  <label>Display name (1 to 60 characters) <input name="display_name" maxlength="60" autocomplete="name" required></label>
+  <label>Password (at least 10 characters) <input type="password" name="password" minlength="10" maxlength="128" autocomplete="new-password" required></label>
+  <button type="submit">Register</button>
+</form>
+<div class="msg" id="msg" role="status" aria-live="polite"></div>
+<p>Already have an account? <a href="login.html">Log in</a>.</p>
+</main>
+<script src="common.js"></script>
+<script>
+setupNav();
+const form = document.getElementById("form");
+const msg = document.getElementById("msg");
+form.addEventListener("submit", async function (event) {
+  event.preventDefault();
+  showMessage(msg, "Creating account...", "");
+  const data = new FormData(form);
+  const result = await api("POST", "/auth/register", {
+    email: data.get("email"), display_name: data.get("display_name"), password: data.get("password"),
+  });
+  if (result.ok) {
+    form.reset();
+    showMessage(msg, "Account created. You can now log in.", "ok");
+  } else {
+    showMessage(msg, errorText(result), "error");
+  }
+});
+</script>
+</body>
+</html>

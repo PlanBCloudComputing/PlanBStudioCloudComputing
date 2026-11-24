@@ -1,0 +1,34 @@
+<!doctype html>
+<!-- index.html: start screen (task P2-S6).
+     Purpose: links to the account and event screens and shows who is logged in. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Plan B Studio</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav>
+  <a href="index.html">Plan B Studio</a>
+  <a href="register.html">Register</a>
+  <a href="login.html">Log in</a>
+  <a href="members.html">Members</a>
+  <a href="decisions.html">Decisions</a>
+  <a href="#" id="logout" hidden>Log out</a>
+  <span class="who" id="who"></span>
+</nav>
+<main>
+<h1>Plan B Studio</h1>
+<p>Plan an outdoor event with a rainy-day fallback for every activity. These screens cover accounts, the people on an event, and the record of decisions.</p>
+<ul>
+  <li><a href="register.html">Create an account</a></li>
+  <li><a href="login.html">Log in</a></li>
+  <li><a href="members.html">Members and roles of an event</a></li>
+  <li><a href="decisions.html">Decision log of an event</a></li>
+</ul>
+</main>
+<script src="common.js"></script>
+<script>setupNav();</script>
+</body>
+</html>

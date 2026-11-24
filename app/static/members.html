@@ -1,0 +1,145 @@
+<!doctype html>
+<!-- members.html: members and roles screen (task P2-S6).
+     Purpose: any member can list an event's members; an organiser can also add,
+     re-role and remove members. The server enforces every rule (404, 403, 409);
+     this page only shows its answers. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Members - Plan B Studio</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav>
+  <a href="index.html">Plan B Studio</a>
+  <a href="register.html">Register</a>
+  <a href="login.html">Log in</a>
+  <a href="members.html">Members</a>
+  <a href="decisions.html">Decisions</a>
+  <a href="#" id="logout" hidden>Log out</a>
+  <span class="who" id="who"></span>
+</nav>
+<main>
+<h1>Members and roles</h1>
+<form class="row" id="load-form">
+  <label>Event id <input id="event-id" size="40" class="mono" required></label>
+  <button type="submit">Load members</button>
+</form>
+<div class="msg" id="msg" role="status" aria-live="polite"></div>
+
+<div id="members" hidden>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Name</th><th>Email</th><th>Role</th><th id="actions-head">Actions</th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+  <section id="add-section" hidden>
+    <h2>Add a member</h2>
+    <p class="hint">The person needs an account first. Roles: viewer, lead, editor, organiser.</p>
+    <form class="row" id="add-form">
+      <label>Email <input type="email" name="email" required></label>
+      <label>Role
+        <select name="role">
+          <option>viewer</option><option>lead</option><option>editor</option><option>organiser</option>
+        </select>
+      </label>
+      <button type="submit">Add</button>
+    </form>
+  </section>
+</div>
+</main>
+<script src="common.js"></script>
+<script>
+requireLogin();
+setupNav();
+const ROLES = ["viewer", "lead", "editor", "organiser"];
+const msg = document.getElementById("msg");
+const eventInput = document.getElementById("event-id");
+let currentEvent = "";
+let isOrganiser = false;
+
+eventInput.value = queryParam("event") || lastEvent();
+
+async function loadMembers() {
+  const me = await api("GET", "/users/me");
+  if (handleUnauthorized(me)) return;
+  const result = await api("GET", "/events/" + encodeURIComponent(currentEvent) + "/members");
+  if (handleUnauthorized(result)) return;
+  const area = document.getElementById("members");
+  if (!result.ok) {
+    area.hidden = true;
+    showMessage(msg, errorText(result), "error");
+    return;
+  }
+  rememberEvent(currentEvent);
+  isOrganiser = result.data.some(function (m) { return m.user_id === me.data.id && m.role === "organiser"; });
+  document.getElementById("add-section").hidden = !isOrganiser;
+  document.getElementById("actions-head").hidden = !isOrganiser;
+  const rows = document.getElementById("rows");
+  rows.replaceChildren();
+  result.data.forEach(function (member) { rows.appendChild(memberRow(member)); });
+  area.hidden = false;
+}
+
+function memberRow(member) {
+  const tr = document.createElement("tr");
+  tr.appendChild(cell(member.display_name));
+  tr.appendChild(cell(member.email));
+  tr.appendChild(cell(member.role));
+  if (!isOrganiser) return tr;
+  const td = document.createElement("td");
+  td.className = "actions";
+  const select = document.createElement("select");
+  select.setAttribute("aria-label", "New role for " + member.display_name);
+  ROLES.forEach(function (role) {
+    const option = document.createElement("option");
+    option.textContent = role;
+    option.selected = role === member.role;
+    select.appendChild(option);
+  });
+  const save = document.createElement("button");
+  save.className = "secondary";
+  save.textContent = "Change role";
+  save.onclick = async function () {
+    const result = await api("PATCH", "/events/" + currentEvent + "/members/" + member.user_id, { role: select.value });
+    showMessage(msg, result.ok ? "Role changed." : errorText(result), result.ok ? "ok" : "error");
+    if (result.ok) loadMembers();
+  };
+  const remove = document.createElement("button");
+  remove.className = "danger";
+  remove.textContent = "Remove";
+  remove.onclick = async function () {
+    if (!window.confirm("Remove " + member.display_name + " from this event?")) return;
+    const result = await api("DELETE", "/events/" + currentEvent + "/members/" + member.user_id);
+    showMessage(msg, result.ok ? "Member removed." : errorText(result), result.ok ? "ok" : "error");
+    if (result.ok) loadMembers();
+  };
+  td.append(select, save, remove);
+  tr.appendChild(td);
+  return tr;
+}
+
+document.getElementById("load-form").addEventListener("submit", function (event) {
+  event.preventDefault();
+  currentEvent = eventInput.value.trim();
+  showMessage(msg, "", "");
+  loadMembers();
+});
+
+document.getElementById("add-form").addEventListener("submit", async function (event) {
+  event.preventDefault();
+  const form = event.target;
+  const data = new FormData(form);
+  const result = await api("POST", "/events/" + currentEvent + "/members", {
+    email: data.get("email"), role: data.get("role"),
+  });
+  if (result.ok) { form.reset(); showMessage(msg, "Member added.", "ok"); loadMembers(); }
+  else showMessage(msg, errorText(result), "error");
+});
+
+if (eventInput.value) { currentEvent = eventInput.value; loadMembers(); }
+</script>
+</body>
+</html>

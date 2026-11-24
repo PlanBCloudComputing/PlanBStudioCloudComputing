@@ -1,0 +1,111 @@
+<!doctype html>
+<!-- decisions.html: decision log screen (task P2-S6).
+     Purpose: any member reads the append-only history of committed plans; an
+     organiser can record a new decision. Recorded decisions cannot be edited or
+     deleted (the database refuses, even for the organiser). -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Decisions - Plan B Studio</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav>
+  <a href="index.html">Plan B Studio</a>
+  <a href="register.html">Register</a>
+  <a href="login.html">Log in</a>
+  <a href="members.html">Members</a>
+  <a href="decisions.html">Decisions</a>
+  <a href="#" id="logout" hidden>Log out</a>
+  <span class="who" id="who"></span>
+</nav>
+<main>
+<h1>Decision log</h1>
+<form class="row" id="load-form">
+  <label>Event id <input id="event-id" size="40" class="mono" required></label>
+  <button type="submit">Load decisions</button>
+</form>
+<div class="msg" id="msg" role="status" aria-live="polite"></div>
+
+<div id="decisions" hidden>
+  <p class="hint">Decisions are permanent: nobody can edit or delete a row, not even the organiser.</p>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>When</th><th>Decided by</th><th>Plan</th><th>Comparison</th><th>Note</th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+  <p id="empty" class="hint" hidden>No decisions recorded yet.</p>
+  <section id="commit-section" hidden>
+    <h2>Record a decision</h2>
+    <form class="stack" id="commit-form">
+      <label>Plan id <input name="plan_id" class="mono" required></label>
+      <label>Comparison id <input name="comparison_id" class="mono" required></label>
+      <label>Note (optional, up to 1000 characters) <textarea name="note" rows="3" maxlength="1000"></textarea></label>
+      <button type="submit">Commit this plan</button>
+    </form>
+  </section>
+</div>
+</main>
+<script src="common.js"></script>
+<script>
+requireLogin();
+setupNav();
+const msg = document.getElementById("msg");
+const eventInput = document.getElementById("event-id");
+let currentEvent = "";
+
+eventInput.value = queryParam("event") || lastEvent();
+
+async function loadDecisions() {
+  const me = await api("GET", "/users/me");
+  if (handleUnauthorized(me)) return;
+  const members = await api("GET", "/events/" + encodeURIComponent(currentEvent) + "/members");
+  if (handleUnauthorized(members)) return;
+  const area = document.getElementById("decisions");
+  if (!members.ok) { area.hidden = true; showMessage(msg, errorText(members), "error"); return; }
+  const isOrganiser = members.data.some(function (m) { return m.user_id === me.data.id && m.role === "organiser"; });
+  document.getElementById("commit-section").hidden = !isOrganiser;
+
+  const result = await api("GET", "/events/" + encodeURIComponent(currentEvent) + "/decisions");
+  if (handleUnauthorized(result)) return;
+  if (!result.ok) { area.hidden = true; showMessage(msg, errorText(result), "error"); return; }
+  rememberEvent(currentEvent);
+  const rows = document.getElementById("rows");
+  rows.replaceChildren();
+  result.data.forEach(function (d) {
+    const tr = document.createElement("tr");
+    tr.appendChild(cell(new Date(d.created_at).toLocaleString()));
+    tr.appendChild(cell(d.created_by_name || "(left the event)"));
+    tr.appendChild(cell(d.plan_id, "mono"));
+    tr.appendChild(cell(d.comparison_id, "mono"));
+    tr.appendChild(cell(d.note || ""));
+    rows.appendChild(tr);
+  });
+  document.getElementById("empty").hidden = result.data.length > 0;
+  area.hidden = false;
+}
+
+document.getElementById("load-form").addEventListener("submit", function (event) {
+  event.preventDefault();
+  currentEvent = eventInput.value.trim();
+  showMessage(msg, "", "");
+  loadDecisions();
+});
+
+document.getElementById("commit-form").addEventListener("submit", async function (event) {
+  event.preventDefault();
+  const form = event.target;
+  const data = new FormData(form);
+  const body = { plan_id: data.get("plan_id").trim(), comparison_id: data.get("comparison_id").trim() };
+  if (data.get("note").trim()) body.note = data.get("note").trim();
+  const result = await api("POST", "/events/" + currentEvent + "/commit", body);
+  if (result.ok) { form.reset(); showMessage(msg, "Decision recorded.", "ok"); loadDecisions(); }
+  else showMessage(msg, errorText(result), "error");
+});
+
+if (eventInput.value) { currentEvent = eventInput.value; loadDecisions(); }
+</script>
+</body>
+</html>
