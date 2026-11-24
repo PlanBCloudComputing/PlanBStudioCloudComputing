@@ -56,6 +56,8 @@ function handleUnauthorized(result) {
 
 /* Fill the "who am I" label and the logout link in the nav bar. */
 async function setupNav() {
+  markCurrentPage();
+  addFooter();
   const who = document.getElementById("who");
   const logout = document.getElementById("logout");
   if (!who) return;
@@ -66,6 +68,28 @@ async function setupNav() {
     logout.hidden = false;
     logout.onclick = function (event) { event.preventDefault(); clearToken(); window.location.href = "login.html"; };
   }
+}
+
+/* Mark the nav link of the page being shown, so the bar can highlight it. */
+function markCurrentPage() {
+  const here = window.location.pathname.split("/").pop() || "index.html";
+  document.querySelectorAll("nav a[href]").forEach(function (link) {
+    if (link.getAttribute("href") === here) link.setAttribute("aria-current", "page");
+  });
+}
+
+/* Add the shared page footer (with the weather-data credit) once per page. */
+function addFooter() {
+  if (document.querySelector("footer")) return;
+  const footer = document.createElement("footer");
+  const text = document.createElement("p");
+  text.append("Plan B Studio, ECS781P Cloud Computing, Queen Mary University of London. Weather data by ");
+  const link = document.createElement("a");
+  link.href = "https://open-meteo.com/";
+  link.textContent = "Open-Meteo.com";
+  text.append(link, " (CC BY 4.0).");
+  footer.appendChild(text);
+  document.body.appendChild(footer);
 }
 
 /* Small DOM helpers. */

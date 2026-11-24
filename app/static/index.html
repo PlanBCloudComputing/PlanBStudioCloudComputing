@@ -1,11 +1,13 @@
 <!doctype html>
 <!-- index.html: start screen (task P2-S6).
-     Purpose: links to the account and event screens and shows who is logged in. -->
+     Purpose: introduces the product, explains how a plan is made, and links to the screens.
+     Logged-in visitors see shortcuts instead of the sign-up buttons. -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Plan B Studio</title>
+<meta name="description" content="Plan an outdoor event with a rainy-day fallback for every activity, checked against a real forecast.">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -19,16 +21,76 @@
   <span class="who" id="who"></span>
 </nav>
 <main>
-<h1>Plan B Studio</h1>
-<p>Plan an outdoor event with a rainy-day fallback for every activity. These screens cover accounts, the people on an event, and the record of decisions.</p>
-<ul>
-  <li><a href="register.html">Create an account</a></li>
-  <li><a href="login.html">Log in</a></li>
-  <li><a href="members.html">Members and roles of an event</a></li>
-  <li><a href="decisions.html">Decision log of an event</a></li>
+<section class="hero">
+  <div>
+    <h1>Plan the outdoor day with a Plan B for every activity.</h1>
+    <p class="lead">Build your programme as activity cards, check a real forecast, compare plan versions by how many minutes fall outside each activity's limits, and record the plan you commit to.</p>
+    <div class="hero-actions" id="cta">
+      <a class="button" href="register.html">Create an account</a>
+      <a class="button secondary" href="login.html">Log in</a>
+    </div>
+  </div>
+  <figure class="hero-art">
+    <svg viewBox="0 0 480 300" role="img" aria-label="Hourly rain chances as bars with a dashed tolerance line. An outdoor activity overlaps the hours above the line, so an indoor fallback is planned for the same slot.">
+      <line class="grid-line" x1="30" y1="210" x2="450" y2="210"/>
+      <line class="grid-line" x1="30" y1="135" x2="450" y2="135"/>
+      <line class="grid-line" x1="30" y1="60" x2="450" y2="60"/>
+      <rect class="bar" style="--i:0" x="30"  y="195"   width="28" height="15"/>
+      <rect class="bar" style="--i:1" x="65"  y="187.5" width="28" height="22.5"/>
+      <rect class="bar" style="--i:2" x="100" y="180"   width="28" height="30"/>
+      <rect class="bar" style="--i:3" x="135" y="157.5" width="28" height="52.5"/>
+      <rect class="bar over" style="--i:4" x="170" y="120"   width="28" height="90"/>
+      <rect class="bar over" style="--i:5" x="205" y="97.5"  width="28" height="112.5"/>
+      <rect class="bar over" style="--i:6" x="240" y="105"   width="28" height="105"/>
+      <rect class="bar" style="--i:7" x="275" y="150"   width="28" height="60"/>
+      <rect class="bar" style="--i:8" x="310" y="172.5" width="28" height="37.5"/>
+      <rect class="bar" style="--i:9" x="345" y="187.5" width="28" height="22.5"/>
+      <rect class="bar" style="--i:10" x="380" y="195"  width="28" height="15"/>
+      <rect class="bar" style="--i:11" x="415" y="195"  width="28" height="15"/>
+      <line class="limit" x1="30" y1="150" x2="450" y2="150"/>
+      <text class="limit-label" x="34" y="142">Rain limit for this activity</text>
+      <rect class="block-out" x="135" y="222" width="168" height="28" rx="6"/>
+      <text class="block-text" x="147" y="241">Outdoor activity</text>
+      <rect class="block-in" x="135" y="258" width="168" height="28" rx="6"/>
+      <text class="block-text" x="147" y="277">Indoor fallback</text>
+      <text class="axis-text" x="30" y="298">Morning</text>
+      <text class="axis-text" x="402" y="298">Evening</text>
+    </svg>
+    <figcaption>Illustration: the forecast crosses an activity's limit, so the plan switches it to its fallback.</figcaption>
+  </figure>
+</section>
+
+<h2>How a plan comes together</h2>
+<ol class="steps">
+  <li><h3>Build the programme</h3><p>Add activity cards, each with a rain and wind tolerance and an indoor fallback.</p></li>
+  <li><h3>Check the forecast</h3><p>Fetch a real forecast; the exact snapshot is saved with your plan.</p></li>
+  <li><h3>Compare plans</h3><p>Rerun up to three plan versions against many slightly altered forecasts.</p></li>
+  <li><h3>Commit one plan</h3><p>The decision is added to a permanent log with the forecast it relied on.</p></li>
+</ol>
+
+<h2>On this site</h2>
+<ul class="links">
+  <li><a href="register.html"><strong>Create an account</strong><span>Sign up with an email address and a password.</span></a></li>
+  <li><a href="login.html"><strong>Log in</strong><span>Pick up where you left off.</span></a></li>
+  <li><a href="members.html"><strong>Members and roles</strong><span>See who is on an event and what each person may do.</span></a></li>
+  <li><a href="decisions.html"><strong>Decision log</strong><span>The permanent record of the plans an organiser committed to.</span></a></li>
 </ul>
 </main>
 <script src="common.js"></script>
-<script>setupNav();</script>
+<script>
+setupNav();
+// Logged-in visitors get shortcuts instead of the sign-up buttons.
+if (getToken()) {
+  const cta = document.getElementById("cta");
+  cta.replaceChildren();
+  [["Members and roles", "members.html", "button"], ["Decision log", "decisions.html", "button secondary"]].forEach(function (item) {
+    const a = document.createElement("a");
+    a.className = item[2];
+    a.href = item[1];
+    a.textContent = item[0];
+    cta.appendChild(a);
+  });
+}
+</script>
 </body>
 </html>
