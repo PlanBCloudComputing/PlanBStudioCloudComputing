@@ -11,8 +11,10 @@ Important logic:
     token (missing, malformed, tampered, expired) gets the same 401.
   * Every error body is {"error": "<code>", "message": "<text>"} (docs/API_SPEC.md).
   * Membership roles are ordered viewer < lead < editor < organiser.
-  * require_role and role_to_pool are still stubs; they arrive with P2-S1.
-    Calling a stub raises NotImplementedError, so a half-wired route fails loudly.
+  * require_role looks up the caller's role on the event in the URL as planb_auth
+    (which can read event_members), sets g.role, and answers 404 if the caller is
+    not a member (hides that the event exists) or 403 if the role is too low.
+  * role_to_pool turns a membership role into the database role for get_conn().
 """
 import datetime
 import uuid
@@ -23,7 +25,7 @@ from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerificationError
 from flask import g, jsonify, request
 
-from app import config
+from app import config, db
 
 # Membership roles from lowest to highest rights.
 ROLE_ORDER = ("viewer", "lead", "editor", "organiser")
@@ -117,26 +119,52 @@ def require_auth(view):
     return wrapper
 
 
-def require_role(min_role):
-    """Decorator factory: require at least min_role on the event in the URL.
-
-    min_role: one of ROLE_ORDER. Sets g.role for the view. Answers 404 if the
-    caller is not a member of the event and 403 if their role is too low.
-    """
-
-    def decorator(view):
-        @wraps(view)
-        def wrapper(*args, **kwargs):
-            raise NotImplementedError("P2-S1")
-
-        return wrapper
-
-    return decorator
-
-
 def role_to_pool(role):
     """Map a membership role to the database role name for get_conn().
 
     role: one of ROLE_ORDER. Returns 'viewer', 'lead', 'editor' or 'organiser'.
+    Each membership role has a database role of the same name (planb_<role>).
+    Raises ValueError for anything else, so a typo cannot pick an admin role.
     """
-    raise NotImplementedError("P2-S1")
+    if role not in ROLE_ORDER:
+        raise ValueError("unknown membership role %r" % (role,))
+    return role
+
+
+def require_role(min_role):
+    """Decorator factory: require at least min_role on the event in the URL.
+
+    The route must have an event_id URL parameter, for example
+    /events/<event_id>/members. This decorator also does the require_auth check,
+    so a route needs only @require_role(...). It looks up the caller's role in
+    event_members (as planb_auth) and sets g.role for the view.
+    Answers 401 without a valid token, 404 if the event id is not a valid id or
+    the caller is not a member (this hides whether the event exists), and
+    403 if the member's role is lower than min_role.
+    """
+    if min_role not in ROLE_ORDER:
+        raise ValueError("unknown membership role %r" % (min_role,))
+
+    def decorator(view):
+        @require_auth
+        @wraps(view)
+        def wrapper(*args, **kwargs):
+            try:
+                event_id = str(uuid.UUID(str(kwargs.get("event_id"))))
+            except ValueError:
+                return api_error(404, "not_found", "Event not found")
+            with db.get_conn("auth", g.user_id) as conn:
+                row = conn.execute(
+                    "SELECT role FROM event_members WHERE event_id = %s AND user_id = %s",
+                    (event_id, g.user_id),
+                ).fetchone()
+            if row is None:
+                return api_error(404, "not_found", "Event not found")
+            if ROLE_ORDER.index(row[0]) < ROLE_ORDER.index(min_role):
+                return api_error(403, "forbidden", "Your role on this event is too low for this action")
+            g.role = row[0]
+            return view(*args, **kwargs)
+
+        return wrapper
+
+    return decorator
