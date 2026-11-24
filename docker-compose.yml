@@ -1,0 +1,59 @@
+# docker-compose.yml: local PostgreSQL 16 for development (task P0-S2).
+#
+# Logic:
+#   * The postgres image runs every file in /docker-entrypoint-initdb.d, in name
+#     order, the FIRST time the data volume is empty. That applies
+#     db/migrations/001_roles.sql, 002_schema.sql and 003_policies.sql as the
+#     postgres admin. This is for setup only; the app never connects as postgres.
+#   * The migration files set no passwords. The "set-passwords" service below
+#     gives the login roles FAKE local passwords. They exist only in this file
+#     and are worthless: real Cloud SQL passwords are different and never in git.
+#   * To start again from scratch (re-run the migrations): docker compose down -v
+#   * Host port 5433 avoids clashing with any PostgreSQL already on port 5432.
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: local_dev_postgres_only
+      POSTGRES_DB: planb
+    ports:
+      - "5433:5432"
+    volumes:
+      - ./db/migrations:/docker-entrypoint-initdb.d:ro
+      - planb_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d planb"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  set-passwords:
+    image: postgres:16
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: local_dev_postgres_only
+    restart: "no"
+    command:
+      - psql
+      - -h
+      - db
+      - -U
+      - postgres
+      - -d
+      - planb
+      - -v
+      - ON_ERROR_STOP=1
+      - -c
+      - >-
+        ALTER ROLE planb_auth PASSWORD 'local_dev_only';
+        ALTER ROLE planb_viewer PASSWORD 'local_dev_only';
+        ALTER ROLE planb_editor PASSWORD 'local_dev_only';
+        ALTER ROLE planb_lead PASSWORD 'local_dev_only';
+        ALTER ROLE planb_organiser PASSWORD 'local_dev_only';
+        ALTER ROLE weather_ingest PASSWORD 'local_dev_only';
+
+volumes:
+  planb_pgdata:
