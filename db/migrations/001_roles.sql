@@ -11,6 +11,10 @@
 -- Run as the database admin (postgres) only. The app never connects as postgres.
 
 CREATE ROLE planb_migrator NOLOGIN;
+-- On Cloud SQL the admin user (postgres) is not a true superuser, so it cannot
+-- SET ROLE to a role it created unless it is explicitly granted that right.
+-- 002 and 003 start with SET ROLE planb_migrator, so grant it here (harmless locally).
+GRANT planb_migrator TO CURRENT_USER WITH SET TRUE;
 
 CREATE ROLE planb_auth       LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE;
 CREATE ROLE planb_viewer     LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE;
@@ -30,6 +34,10 @@ GRANT USAGE, CREATE ON SCHEMA public TO planb_migrator;
 GRANT USAGE ON SCHEMA public TO
     planb_auth, planb_viewer, planb_editor, planb_lead, planb_organiser, weather_ingest;
 
--- Functions are executable by PUBLIC by default. Turn that off for everything the migrator creates.
-ALTER DEFAULT PRIVILEGES FOR ROLE planb_migrator IN SCHEMA public
+-- PostgreSQL lets PUBLIC execute every new function. That is a global default, so it
+-- can only be removed globally (a REVOKE limited to one schema has no effect).
+-- This turns it off for all functions the migrator creates; 003_policies.sql then
+-- grants EXECUTE on the helper functions to the roles that need them.
+-- It needs membership of planb_migrator, so it must come after the GRANT above.
+ALTER DEFAULT PRIVILEGES FOR ROLE planb_migrator
     REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
